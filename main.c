@@ -37,26 +37,28 @@ void mostrar_cambios_comunic(void);
 void config_int1_2(void);
 void config_uart(void);
 void mostrar_cambios_paridad(void);
+void mostrar_cambios_nbit(void);
+void mostrar_cambios_baudios(void);
 
 /**********************************VARIABLES************************************/
 volatile bool flag_b2=0;
 volatile bool flag_b3=0;
 volatile bool flag_rep=1;
 volatile bool flag_confirm=0;
-volatile bool flag_now_comunic=0;
-volatile bool flag_loop1=1;
-volatile bool flag_now_paridad=0;
-volatile bool flag_loop2=1;
+volatile bool flag_now=0;
+volatile bool flag_loop=1;
 uint8_t bus_opcion=1;
 uint8_t max_opcion;
 uint8_t min_opcion=1;
 uint8_t comunic=0;
 uint8_t paridad=0;
+uint8_t nbit=0;
+uint8_t baud=0;
 
 
 int main(void)
 {
-
+	
 	config();								//CONFIGURACIONES PRINCIPALES DEL MICRO
 	cli();	
 	config_ext_int();						//CONFIGURACION DE INT0,INT1 E INT2
@@ -74,10 +76,12 @@ int main(void)
 		{
 			config_int1_2();											//HABILITO LAS INT EXTERNAS 1 Y 2
 			
-			while(flag_loop1)
+			while(flag_loop)
 			{
 				mover_cursor_cambios_menu();							//ELECCION DEL TIPO DE COMUNICACION A USAR
 			}
+			
+			flag_loop=1;
 			
 			if (comunic==1)												//CONFIGURACION DEL UART
 			{
@@ -120,7 +124,7 @@ void config_ext_int(void){
 }
 
 void config_int1_2(void){
-	flag_now_comunic=1;							//BANDERA QUE AFIRMA QUE PASO EL PRIMER LOOP MENU
+	flag_now=1;							//BANDERA QUE AFIRMA QUE PASO EL PRIMER LOOP MENU
 	max_opcion=3;								//CANTIDAD MAXIMA DE OPCIONES EN EL GLCD
 	bus_opcion=1;								//POSICION DEL CURSOR EN EL GLCD (VALOR INICIAL 1)
 	flag_confirm=0;								//LIMPIA LA BANDERA PORQUE YA PASO EL PRIMER LOOP MENU
@@ -167,7 +171,7 @@ void mostrar_cambios_comunic(void){
 			comunic=1;
 			glcd_clearscreen();
 			write_small(0,0,"TIPOS DE COMUNICACION",0);
-			write_small(15,0,"1) UART (SELECCIONADA)",0);
+			write_small(15,0,"1) UART (SELECCIONADO)",0);
 			write_small(30,0,"2) I2C",0);
 			write_small(45,0,"3) SPI",0);
 			break;
@@ -177,7 +181,7 @@ void mostrar_cambios_comunic(void){
 			glcd_clearscreen();
 			write_small(0,0,"TIPOS DE COMUNICACION",0);
 			write_small(15,0,"1) UART",0);
-			write_small(30,0,"2) I2C (SELECCIONADA)",0);
+			write_small(30,0,"2) I2C (SELECCIONADO)",0);
 			write_small(45,0,"3) SPI",0);
 			break;
 			
@@ -187,7 +191,7 @@ void mostrar_cambios_comunic(void){
 			write_small(0,0,"TIPOS DE COMUNICACION",0);
 			write_small(15,0,"1) UART",0);
 			write_small(30,0,"2) I2C",0);
-			write_small(45,0,"3) SPI (SELECCIONADA)",0);
+			write_small(45,0,"3) SPI (SELECCIONADO)",0);
 			break;
 		}
 		flag_rep=0;
@@ -197,20 +201,34 @@ void mostrar_cambios_comunic(void){
 void config_uart(void){
 	max_opcion=3;
 	bus_opcion=1;
-	flag_now_comunic=0;
-	flag_now_paridad=1;
 	flag_rep=1;
 	
-	glcd_clearscreen();
-	write_small(0,0,"TIPOS DE BIT DE PARIDAD",0);
-	write_small(15,0,"1) PAR",0);
-	write_small(30,0,"2) IMPAR",0);
-	write_small(45,0,"3) NO PARIDAD",0);
 	
-	while(flag_loop2)
+	while(flag_loop)
 	{
 		mover_cursor();
 		mostrar_cambios_paridad();
+	}
+	
+	max_opcion=5;
+	bus_opcion=1;
+	flag_rep=1;
+	flag_loop=1;
+	
+
+	while (flag_loop){
+		mover_cursor();
+		mostrar_cambios_nbit();
+	}
+	
+	max_opcion=4;
+	bus_opcion=1;
+	flag_rep=1;
+	flag_loop=1;
+	
+	while(flag_loop){
+		mover_cursor();
+		mostrar_cambios_baudios();
 	}
 }
 
@@ -221,7 +239,7 @@ void mostrar_cambios_paridad(void){
 			paridad=1;
 			glcd_clearscreen();
 			write_small(0,0,"TIPOS DE BIT DE PARIDAD",0);
-			write_small(15,0,"1) PAR (SELECCIONADA)",0);
+			write_small(15,0,"1) PAR (SELECCIONADO)",0);
 			write_small(30,0,"2) IMPAR",0);
 			write_small(45,0,"3) NO PARIDAD",0);
 			break;
@@ -231,7 +249,7 @@ void mostrar_cambios_paridad(void){
 			glcd_clearscreen();
 			write_small(0,0,"TIPOS DE BIT DE PARIDAD",0);
 			write_small(15,0,"1) PAR",0);
-			write_small(30,0,"2) IMPAR (SELECCIONADA)",0);
+			write_small(30,0,"2) IMPAR (SELECCIONADO)",0);
 			write_small(45,0,"3) NO PARIDAD",0);
 			break;
 			
@@ -249,19 +267,114 @@ void mostrar_cambios_paridad(void){
 }
 
 
+void mostrar_cambios_nbit(void){
+	if (flag_rep==1){
+		switch (bus_opcion){
+			case 1:
+			nbit=5;
+			glcd_clearscreen();
+			write_small(0,0,"CANTIDAD DE BITS",0);
+			write_small(15,0,"1) 5 (S)    2) 6",0);
+			write_small(30,0,"3) 7        4) 8",0);
+			write_small(45,0,"5) 9",0);
+			break;
+			
+			case 2:
+			nbit=6;
+			glcd_clearscreen();
+			write_small(0,0,"CANTIDAD DE BITS",0);
+			write_small(15,0,"1) 5        2) 6 (S)",0);
+			write_small(30,0,"3) 7        4) 8",0);
+			write_small(45,0,"5) 9",0);
+			break;
+			
+			case 3:
+			nbit=7;
+			glcd_clearscreen();
+			write_small(0,0,"CANTIDAD DE BITS",0);
+			write_small(15,0,"1) 5        2) 6",0);
+			write_small(30,0,"3) 7 (S)    4) 8",0);
+			write_small(45,0,"5) 9",0);
+			break;
+			
+			case 4:
+			nbit=8;
+			glcd_clearscreen();
+			write_small(0,0,"CANTIDAD DE BITS",0);
+			write_small(15,0,"1) 5        2) 6",0);
+			write_small(30,0,"3) 7        4) 8 (S)",0);
+			write_small(45,0,"5) 9",0);
+			break;
+
+			case 5:
+			nbit=9;
+			glcd_clearscreen();
+			write_small(0,0,"CANTIDAD DE BITS",0);
+			write_small(15,0,"1) 5        2) 6",0);
+			write_small(30,0,"3) 7        4) 8",0);
+			write_small(45,0,"5) 9 (S)",0);
+			break;			
+		}
+		flag_rep=0;
+	}
+}
+
+void mostrar_cambios_baudios(void){
+	if (flag_rep==1){
+		switch (bus_opcion){
+			case 1:
+			baud=48;
+			glcd_clearscreen();
+			write_small(0,0,"VELOCIDAD BAUDIO",0);
+			write_small(13,0,"1) 4800 (SELECCIONADO)",0);
+			write_small(25,0,"2) 9600",0);
+			write_small(39,0,"3) 14.4K",0);
+			write_small(52,0,"4) 19.2K",0);
+			break;
+			
+			case 2:
+			baud=96;
+			glcd_clearscreen();
+			write_small(0,0,"VELOCIDAD BAUDIO",0);
+			write_small(13,0,"1) 4800",0);
+			write_small(25,0,"2) 9600 (SELECCIONADO)",0);
+			write_small(39,0,"3) 14.4K",0);
+			write_small(52,0,"4) 19.2K",0);
+			break;
+			
+			case 3:
+			baud=144;
+			glcd_clearscreen();
+			write_small(0,0,"VELOCIDAD BAUDIO",0);
+			write_small(13,0,"1) 4800",0);
+			write_small(25,0,"2) 9600",0);
+			write_small(39,0,"3) 14.4K (SELECCIONADO)",0);
+			write_small(52,0,"4) 19.2K",0);
+			break;
+			
+			case 4:
+			baud=192;
+			glcd_clearscreen();
+			write_small(0,0,"VELOCIDAD BAUDIO",0);
+			write_small(13,0,"1) 4800",0);
+			write_small(25,0,"2) 9600",0);
+			write_small(39,0,"3) 14.4K",0);
+			write_small(52,0,"4) 19.2K (SELECCIONADO)",0);
+			break;
+		}
+		flag_rep=0;
+	}
+}
+
 /**********************************INTERRUPCIONES************************************/
 
 ISR(INT0_vect){
 	
-	if (flag_now_paridad){
-		flag_loop2=0;								//BANDERA PARA ROMPER EL PRIMER LOOP DE LA CONFIG UART
+	if (flag_now){
+		flag_loop=0;								//BANDERA PARA ROMPER EL PRIMER LOOP DE LA CONFIG UART
 		flag_rep=1;									//BANDERA PARA MOSTRAR CAMBIOS EN LA PANTALLA GLCD'
 	}
 	
-    else if(flag_now_comunic){
-		flag_loop1=0;								//BANDERA PARA ROMPER EL PRIMER LOOP
-		flag_rep=1;									//BANDERA PARA MOSTRAR CAMBIOS EN LA PANTALLA GLCD'
-	}
 	else{
 		flag_confirm=1;								//BANDERA DE CONFIRMACION
 		flag_rep=1;									//BANDERA PARA MOSTRAR CAMBIOS EN LA PANTALLA GLCD'

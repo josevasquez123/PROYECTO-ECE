@@ -12,7 +12,7 @@
 #include "config.h"
 
 
-void init_mmap(void);
+
 void glcd_exec();
 void glcd_reset(void);
 void glcd_on(void);
@@ -26,8 +26,7 @@ uint8 write(uint8 x, uint8 y, uint8 *txt, uint8 clrflag);
 uint8 write_small(uint8 x, uint8 y, const char *txt, uint8 clrflag);
 uint8 glcd_putchar_small(uint8 ch, uint8 x, uint8 y, uint8 clrflag);
 
-extern volatile uint8 ismodechanged;
-extern volatile uint8 mmap[1024];
+
 
 
 

@@ -13,13 +13,6 @@
 #include <avr/io.h>
 #include <stdint.h>
 
-volatile uint8 mmap[1024]; //Unused, but space blocked for later use as a memory map
-
-void init_mmap(void) {
-    for (int i = 0; i < 1024; i++) {
-        mmap[i] = 0;
-    }
-}
 
 
 void glcd_exec() {
@@ -41,7 +34,6 @@ void glcd_reset(void) {
 }
 
 void glcd_on(void) {
-    init_mmap();
 	GLCDPORT |= (HIGH<<CS1);
     //CS1 = HIGH; //Don't know why but these are needed otherwise display doesn't turn on
 	GLCDPORT |= (HIGH<<CS2);
