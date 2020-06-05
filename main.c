@@ -11,6 +11,7 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <setjmp.h>
 #include "librerias/config.h"
@@ -57,6 +58,7 @@ void activacion_registros_uart(void);
 void registro_bit_paridad(void);
 void registro_cantidad_bits(void);
 void registro_baud(void);
+void clear_all(void);
 
 /**********************************VARIABLES************************************/
 volatile bool flag_b2=0;
@@ -75,25 +77,27 @@ uint8_t paridad=0;
 uint8_t nbit=0;
 uint8_t baud=0;
 jmp_buf entorno;
+volatile char mybuffer= '0';
 
 
 int main(void)
 {
 	
 	config();								//CONFIGURACIONES PRINCIPALES DEL MICRO
-	cli();	
-	config_ext_int();						//CONFIGURACION DE INT0,INT1 E INT2
-	sei();
+	
 	//PRIMERA INTRODUCCION EN LA PANTALLA GLCD
 	glcd_on();
+	
+	setjmp(entorno);
+	cli();
+	config_ext_int();						//CONFIGURACION DE INT0,INT1 E INT2
+	sei();
 	glcd_clearscreen();
 	write_small(25,40,"PROYECTO",0);
 	write_small(36,53,"ECE",0);
 
-
     while (1) 
     {
-		setjmp(entorno);
 		
 		if(flag_confirm)
 		{
@@ -152,6 +156,7 @@ void config_ext_int(void){
 	MCUCR &=~ (1<<ISC00)|(1<<ISC10);			//CONFIGURAR FLANCO DE BAJADA INT0 E INT1
 	MCUCSR &=~ (1<<ISC2);						//CONFIGURAR FLANCO DE BAJADA INT2
 	GICR|=(1<<INT0);							//HABILITANDO INT0
+	GICR&=~(1<<INT1)|(1<<INT2);					//DESHABILITANDO INT1 E INT2
 }
 
 /********************************* HABILITA BOTON 2 Y 3 ***********************************/
@@ -423,23 +428,69 @@ void mostrar_cambios_baudios(void){
 /********************************* ENVIO DE DATOS UART ***********************************/
 
 void envio_uart(void){
+	
+	//VARIABLES LOCALES
+	jmp_buf entorno_menu;						//VARIABLE PARA HACER SALTOS EN LA FUNCION
+	
 	activacion_registros_uart();				// ACTIVO LA CONFIGURACION HECHA POR EL USUARIO
 	flag_now2=1;								// ACTIVO FLAG PARA UTILIZAR LA OTRA FUNCIONALIDAD DEL BOTON 2
+	flag_rep=1;
 	glcd_clearscreen();
 	write_small(25,30,"ESPERANDO AL",0);
 	write_small(36,42,"MASTER",0);
 	
-	while(flag_stop==0)
-		
-		glcd_clearscreen();
-		write_small(25,30,"HOLAS",0);
+	setjmp(entorno_menu);						//EN ESTE LUGAR LLEGARAN LOS SALTOS
+	
+	if(flag_stop){
 		flag_now=0;
 		flag_now2=0;
-		cli();
-		GICR |= (1<<INT0);
-		sei();
+		flag_rep=1;
+		flag_stop=0;
+		flag_loop=1;
+		bus_opcion=1;
 		longjmp( entorno, 1 );
+	}
 	
+	if (mybuffer=='1'){
+		
+		cli();
+		UCSRB&=~(1<<RXEN);
+		sei();
+		
+		glcd_clearscreen();
+		write_small(15,19,"ENVIO DE DATOS",0);
+		write_small(30,35,"ACTIVADO",0);
+		
+		while(flag_stop==0){
+			//comando para envio de uart
+			//UDR=buffer_spi;
+			//write_small(45,10,"TEMPERATURA = X (C)",0);
+		}
+		
+		UCSRB&=~(1<<TXEN);	
+		flag_now2=0;
+		flag_stop=1;
+		DDRD &=~(1<<DDD0)|(1<<DDD1);
+		
+	}
+	else{
+		if(mybuffer=='0' || mybuffer=='1'){
+			longjmp( entorno_menu, 1 );
+		}
+		else{			
+			if(flag_rep==1){
+				flag_rep=0;
+				glcd_clearscreen();
+				write_small(15,20,"DATO ERRONEO :(",0);
+				write_small(30,5,"ENVIAR DATO CORRECTO",0);
+				write_small(45,3,"COMANDO CORRECTO -> 1",0);
+				longjmp( entorno_menu, 1 );
+			}
+			else{
+				longjmp( entorno_menu, 1 );
+			}
+		}
+	}
 }
 
 
@@ -448,7 +499,8 @@ void activacion_registros_uart(void){
 	cli();
 	UCSRC&=~(1<<UMSEL);							//MODO ASINCRONO
 	UCSRA|=(1<<U2X);							//DOBLE VELOCIDAD DE TRANSMISION
-	UCSRB|=(1<<RXEN)|(1<<TXEN);					//HABILITA LA TRANSMISION Y RECEPCION
+	UCSRB|=(1<<RXEN)|(1<<TXEN)|(1<<RXCIE);		//HABILITA LA TRANSMISION, RECEPCION E INT POR RECEPCION
+	
 	registro_bit_paridad();						
 	registro_cantidad_bits();
 	registro_baud();
@@ -530,6 +582,14 @@ void registro_baud(void){
 	}
 }
 
+/********************************* ENVIO DE DATOS UART ***********************************/
+void clear_all(void){
+	//limpia todo los cambios q se han hecho, esto sirve para que cuando vuelva al menu principal todo este como nuevo
+}
+
+
+
+
 /********************************************************* INTERRUPCIONES **********************************************************/
 
 ISR(INT0_vect){
@@ -558,4 +618,8 @@ ISR(INT1_vect){
 
 ISR(INT2_vect){
 	flag_b3=1;										//BANDERA PARA RETROCEDER EL CURSOR EN 1
+}
+
+ISR(USART_RXC_vect){								//INTERRUPCION PARA LA RECEPCION DE DATOS UART
+	mybuffer= UDR;
 }
