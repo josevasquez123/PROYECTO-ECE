@@ -99,6 +99,22 @@ void glcd_clearscreen(void) {
     glcd_gotox(0x00);
 }
 
+void glcd_clearscreen2(void){
+	//GLCDPORT |= (HIGH<<CS1);
+	//CS1 = HIGH;
+	GLCDPORT |= (HIGH<<CS2);
+	//CS2 = HIGH;
+	glcd_gotoy(0x00);
+	for (uint8 x = 5; x < 8; x++) {
+		glcd_gotox(x);
+		for (uint8 y = 0; y < 64; y++) {
+			glcd_putbyte(0x00);
+		}
+	}
+	glcd_gotoy(0x00);
+	glcd_gotox(0x00);
+}
+
 uint8 glcd_putchar(uint8 ch, uint8 x, uint8 y, uint8 clrflag) { //x: 0-63, y:0-127
 
     uint8 sy = 0;

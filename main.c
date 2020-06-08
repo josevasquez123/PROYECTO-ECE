@@ -6,6 +6,7 @@
  */ 
 
 #define F_CPU 16000000UL
+#define fclk 0.3
 
 #include <util/delay.h>
 #include <avr/io.h>
@@ -59,6 +60,10 @@ void registro_bit_paridad(void);
 void registro_cantidad_bits(void);
 void registro_baud(void);
 void clear_all(void);
+void mensaje_final(void);
+//void timer_init(void);
+//void timer_on(void);
+//void timer_off(void);
 
 /**********************************VARIABLES************************************/
 volatile bool flag_b2=0;
@@ -77,7 +82,7 @@ uint8_t paridad=0;
 uint8_t nbit=0;
 uint8_t baud=0;
 jmp_buf entorno;
-volatile char mybuffer= '0';
+volatile char mybuffer= ' ';
 
 
 int main(void)
@@ -107,9 +112,7 @@ int main(void)
 			{
 				mover_cursor_cambios_menu();							//ELECCION DEL TIPO DE COMUNICACION A USAR
 			}
-			
-			flag_loop=1;
-						
+									
 			if (comunic==1)												//CONFIGURACION DEL UART
 			{
 				config_uart();	
@@ -126,10 +129,8 @@ int main(void)
 			{
 				puertos_entrada();										//DEFINO TODO LOS PUERTOS DE COMUNICACION COMO ENTRADA (POR PRECAUCIÓN)	
 			}
-			else
-			{
-				//MOSTRAR ERROR POR EL GLCD
-			}
+			
+			mensaje_final();
 		}
     }
 }
@@ -222,7 +223,7 @@ void config_uart(void){
 	max_opcion=3;
 	bus_opcion=1;
 	flag_rep=1;
-	
+	flag_loop=1;
 	
 	while(flag_loop)
 	{
@@ -294,7 +295,7 @@ void mostrar_cambios_paridad(void){
 	if (flag_rep==1){
 		switch (bus_opcion){
 			case 1:
-			paridad=1;
+			paridad=2;
 			glcd_clearscreen();
 			write_small(0,0,"TIPOS DE BIT DE PARIDAD",0);
 			write_small(15,0,"1) PAR (SELECCIONADO)",0);
@@ -303,7 +304,7 @@ void mostrar_cambios_paridad(void){
 			break;
 			
 			case 2:
-			paridad=2;
+			paridad=1;
 			glcd_clearscreen();
 			write_small(0,0,"TIPOS DE BIT DE PARIDAD",0);
 			write_small(15,0,"1) PAR",0);
@@ -432,9 +433,12 @@ void envio_uart(void){
 	//VARIABLES LOCALES
 	jmp_buf entorno_menu;						//VARIABLE PARA HACER SALTOS EN LA FUNCION
 	
+	//char dato[12]="hello world\r";				//DATO DE EJEMPLO PARA LA SIMULACION
+	
 	activacion_registros_uart();				// ACTIVO LA CONFIGURACION HECHA POR EL USUARIO
 	flag_now2=1;								// ACTIVO FLAG PARA UTILIZAR LA OTRA FUNCIONALIDAD DEL BOTON 2
-	flag_rep=1;
+	flag_rep=1;									// BANDERA PARA SETEAR LA PANTALLA DE ERROR DE DATO ENVIADO
+	
 	glcd_clearscreen();
 	write_small(25,30,"ESPERANDO AL",0);
 	write_small(36,42,"MASTER",0);
@@ -444,41 +448,43 @@ void envio_uart(void){
 	if(flag_stop){
 		flag_now=0;
 		flag_now2=0;
-		flag_rep=1;
 		flag_stop=0;
 		flag_loop=1;
-		bus_opcion=1;
+		
 		longjmp( entorno, 1 );
 	}
 	
 	if (mybuffer=='1'){
 		
-		cli();
-		UCSRB&=~(1<<RXEN);
-		sei();
-		
 		glcd_clearscreen();
 		write_small(15,19,"ENVIO DE DATOS",0);
 		write_small(30,35,"ACTIVADO",0);
+		write_small(45,30,"TEMP = ",0);
+		//SOLO PARA DEMOSTRACION
+		int temp=0;
+		char s[10];
 		
 		while(flag_stop==0){
-			//comando para envio de uart
-			//UDR=buffer_spi;
-			//write_small(45,10,"TEMPERATURA = X (C)",0);
+		
+			while(!(UCSRA&(1<<UDRE)));
+			temp++;
+			UDR=temp;
+			glcd_clearscreen2();
+			sprintf(s,"%u C",temp);
+			write_small(45,70,s,0);
+						
+			_delay_ms(1000);
 		}
 		
-		UCSRB&=~(1<<TXEN);	
-		flag_now2=0;
-		flag_stop=1;
-		DDRD &=~(1<<DDD0)|(1<<DDD1);
+		clear_all();
 		
 	}
 	else{
-		if(mybuffer=='0' || mybuffer=='1'){
+		if(mybuffer==' ' || mybuffer=='1'){
 			longjmp( entorno_menu, 1 );
 		}
 		else{			
-			if(flag_rep==1){
+			if(flag_rep){
 				flag_rep=0;
 				glcd_clearscreen();
 				write_small(15,20,"DATO ERRONEO :(",0);
@@ -497,13 +503,14 @@ void envio_uart(void){
 void activacion_registros_uart(void){
 	DDRD|=(1<<DDD1);							//TXD COMO SALIDA
 	cli();
+	registro_baud();
+	UCSRC|=(1<<URSEL);	
 	UCSRC&=~(1<<UMSEL);							//MODO ASINCRONO
 	UCSRA|=(1<<U2X);							//DOBLE VELOCIDAD DE TRANSMISION
 	UCSRB|=(1<<RXEN)|(1<<TXEN)|(1<<RXCIE);		//HABILITA LA TRANSMISION, RECEPCION E INT POR RECEPCION
 	
 	registro_bit_paridad();						
 	registro_cantidad_bits();
-	registro_baud();
 	sei();
 }
 
@@ -584,8 +591,73 @@ void registro_baud(void){
 
 /********************************* ENVIO DE DATOS UART ***********************************/
 void clear_all(void){
-	//limpia todo los cambios q se han hecho, esto sirve para que cuando vuelva al menu principal todo este como nuevo
+	flag_now=0;
+	flag_now2=0;
+	flag_stop=0;
+	flag_loop=1;
+	mybuffer= ' ';
+	paridad=0;
+	nbit=0;
+	baud=0;
+	UCSRA&=~(1<<U2X);
+	UCSRB=0x00;
+	UCSRC&=~(1<<URSEL);
+	UBRRL=0x00;
+	UBRRH=0x0;
+	UCSRC=0x80;
+	DDRD &=~(1<<DDD0)|(1<<DDD1);
 }
+
+
+/************************************ TIMER 3 SEGUNDOS **************************************/
+
+//void timer_init(void){
+	//TCCR1A &=~(1<<WGM11)|(1<<WGM10);
+	//TCCR1B |=(1<<WGM12);
+	//TCCR1B &=~(1<<WGM13);
+//
+	//OCR1A = (F_CPU/1024/fclk)-1;
+//
+	//TIMSK |= (1<<OCIE1A);
+//}
+//
+//void timer_on(void){
+	//TCNT1L=0X00;
+	//TCNT1H=0x00;
+	//TCCR1B |=(1<<CS12)|(1<<CS10);
+	//TCCR1B &=~(1<<CS11);
+//}
+//
+//void timer_off(void){
+	//TCCR1B &=~(1<<CS11)|(1<<CS12)|(1<<CS10);
+	//TIMSK &=~ (1<<OCIE1A);
+	//TCNT1L=0X00;
+	//TCNT1H=0x00;
+//}
+
+
+/********************************* MENSAJE FINAL ***********************************/
+void mensaje_final(void){
+	glcd_clearscreen();
+	write_small(25,27,"COMUNICACION",0);
+	write_small(36,30,"TERMINADA :)",0);
+	//cli();
+	//timer_init();
+	//timer_on();
+	//sei();
+	//while (!flag_stop);
+	//cli();
+	//timer_off();
+	//sei();
+	//flag_stop=0;
+	_delay_ms(3000);
+	longjmp( entorno, 1 );
+}
+
+
+
+
+
 
 
 
@@ -621,5 +693,12 @@ ISR(INT2_vect){
 }
 
 ISR(USART_RXC_vect){								//INTERRUPCION PARA LA RECEPCION DE DATOS UART
+	
 	mybuffer= UDR;
+}
+
+
+
+ISR(TIMER1_COMPA_vect){
+	flag_stop=1;	
 }

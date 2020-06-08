@@ -20,6 +20,7 @@ void glcd_gotoy(uint8 y);
 void glcd_gotox(uint8 x);
 void glcd_putbyte(uint8 x);
 void glcd_clearscreen(void);
+void glcd_clearscreen2(void);
 uint8 glcd_putchar(uint8 ch, uint8 x, uint8 y, uint8 clrflag);
 uint8 write(uint8 x, uint8 y, uint8 *txt, uint8 clrflag);
 
