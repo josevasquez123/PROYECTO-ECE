@@ -61,6 +61,7 @@ void registro_cantidad_bits(void);
 void registro_baud(void);
 void clear_all(void);
 void mensaje_final(void);
+void error_paridad(void);
 //void timer_init(void);
 //void timer_on(void);
 //void timer_off(void);
@@ -74,6 +75,7 @@ volatile bool flag_now=0;
 volatile bool flag_loop=1;
 volatile bool flag_now2=0;
 volatile bool flag_stop=0;;
+volatile uint8_t error_uart=0;
 uint8_t bus_opcion=1;
 uint8_t max_opcion;
 uint8_t min_opcion=1;
@@ -100,7 +102,7 @@ int main(void)
 	glcd_clearscreen();
 	write_small(25,40,"PROYECTO",0);
 	write_small(36,53,"ECE",0);
-
+	
     while (1) 
     {
 		
@@ -445,11 +447,14 @@ void envio_uart(void){
 	
 	setjmp(entorno_menu);						//EN ESTE LUGAR LLEGARAN LOS SALTOS
 	
+	error_paridad();
+	
 	if(flag_stop){
 		flag_now=0;
 		flag_now2=0;
 		flag_stop=0;
 		flag_loop=1;
+		mybuffer=' ';
 		
 		longjmp( entorno, 1 );
 	}
@@ -472,7 +477,7 @@ void envio_uart(void){
 			glcd_clearscreen2();
 			sprintf(s,"%u C",temp);
 			write_small(45,70,s,0);
-						
+
 			_delay_ms(1000);
 		}
 		
@@ -589,23 +594,45 @@ void registro_baud(void){
 	}
 }
 
-/********************************* ENVIO DE DATOS UART ***********************************/
+/********************************* ERROR PARA BIT DE PARIDAD ***********************************/
+
+void error_paridad(void){
+	if(error_uart){
+		error_uart=0;
+		glcd_clearscreen();
+		write_small(20,18,"ERROR DE PARIDAD",0);
+		write_small(32,38,"REVISE SU",0);
+		write_small(45,22,"CONFIGURACION :)",0);
+	}
+	else if(error_uart==2){
+		error_uart=0;
+		glcd_clearscreen();
+		write_small(20,18,"ERROR DE TRAMA",0);
+		write_small(32,38,"REVISE SU",0);
+		write_small(45,22,"CONFIGURACION :)",0);
+	}
+}
+
+
+/********************************* LIMPIEZA DE TODO LOS REGISTROS UTILIZADOS ***********************************/
 void clear_all(void){
 	flag_now=0;
 	flag_now2=0;
 	flag_stop=0;
 	flag_loop=1;
-	mybuffer= ' ';
+	mybuffer=' ';
 	paridad=0;
 	nbit=0;
 	baud=0;
+	cli();
 	UCSRA&=~(1<<U2X);
 	UCSRB=0x00;
+	UCSRC=0x80;
 	UCSRC&=~(1<<URSEL);
 	UBRRL=0x00;
 	UBRRH=0x0;
-	UCSRC=0x80;
 	DDRD &=~(1<<DDD0)|(1<<DDD1);
+	sei();
 }
 
 
@@ -694,7 +721,19 @@ ISR(INT2_vect){
 
 ISR(USART_RXC_vect){								//INTERRUPCION PARA LA RECEPCION DE DATOS UART
 	
-	mybuffer= UDR;
+	if(UCSRA&(1<<FE)){
+		uint8_t temp;
+		error_uart=2;	
+		temp= UDR;
+	}
+	else if(UCSRA&(1<<2)){
+		uint8_t temp;
+		error_uart=1;								//REUTILIZANDO ESTE FLAG PARA MOSTRAR EL ERROR DE PARIDAD
+		temp= UDR;
+	}
+	else{
+		mybuffer= UDR;
+	}
 }
 
 
@@ -702,3 +741,11 @@ ISR(USART_RXC_vect){								//INTERRUPCION PARA LA RECEPCION DE DATOS UART
 ISR(TIMER1_COMPA_vect){
 	flag_stop=1;	
 }
+
+
+//PARA TENER EL DATO EN 2 UINT8_T
+//double v=25.562677678;
+//
+	//uint8_t a= trunc(v);
+	//uint8_t b=(v-trunc(v))*100;
+	//b=trunc(b);
