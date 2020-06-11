@@ -62,6 +62,7 @@ void registro_baud(void);
 void clear_all(void);
 void mensaje_final(void);
 void error_paridad(void);
+void retroceder(void);
 //void timer_init(void);
 //void timer_on(void);
 //void timer_off(void);
@@ -74,7 +75,8 @@ volatile bool flag_confirm=0;
 volatile bool flag_now=0;
 volatile bool flag_loop=1;
 volatile bool flag_now2=0;
-volatile bool flag_stop=0;;
+volatile bool flag_stop_comunicaciones=0;;
+volatile bool flag_paridad_lugar=0;
 volatile uint8_t error_uart=0;
 uint8_t bus_opcion=1;
 uint8_t max_opcion;
@@ -83,7 +85,11 @@ uint8_t comunic=0;
 uint8_t paridad=0;
 uint8_t nbit=0;
 uint8_t baud=0;
-jmp_buf entorno;
+jmp_buf inicio;
+jmp_buf comunicaciones;
+jmp_buf lugar_paridad;
+jmp_buf lugar_nbit;
+jmp_buf lugar_baud;
 volatile char mybuffer= ' ';
 
 
@@ -95,7 +101,7 @@ int main(void)
 	//PRIMERA INTRODUCCION EN LA PANTALLA GLCD
 	glcd_on();
 	
-	setjmp(entorno);
+	setjmp(inicio);
 	cli();
 	config_ext_int();						//CONFIGURACION DE INT0,INT1 E INT2
 	sei();
@@ -107,12 +113,15 @@ int main(void)
     {
 		
 		if(flag_confirm)
-		{
+		{	
+			setjmp(comunicaciones);										//PUNTO DE SALTO
+			
 			config_int1_2();											//HABILITO LAS INT EXTERNAS 1 Y 2
 			
 			while(flag_loop)
 			{
 				mover_cursor_cambios_menu();							//ELECCION DEL TIPO DE COMUNICACION A USAR
+				retroceder();
 			}
 									
 			if (comunic==1)												//CONFIGURACION DEL UART
@@ -146,10 +155,11 @@ int main(void)
 /********************************* CONFIGURACIONES PUERTO GLCD ***********************************/
 
 void config(void){
-	DDRA=0xff;									//DEFINIR PUERTO DE DATOS DE GLCD COMO SALIDA
-	DDRC=0xfc;									//DEFINIR PUERTO DE ESTADOS DE GLCD COMO  SALIDA
-	DDRD &=~ (1<<DDD2);							//INT0 (BOTON) COMO ENTRADA
-	GLCDPORT|=(1<<RST);						    //PRIMER ESTADO RESET EN HIGH DEL GLCD
+	DDRA=0xff;																	//DEFINIR PUERTO DE DATOS DE GLCD COMO SALIDA
+	DDRC=0xfc;																	//DEFINIR PUERTO DE ESTADOS DE GLCD COMO  SALIDA
+	DDRD &=~ (1<<DDD2)|(1<<DDD3)|(1<<DDD7);										//INT0,INT1,INT2 Y B4 (BOTON) COMO ENTRADA
+	DDRB &=~ (1<<DDB2);
+	GLCDPORT|=(1<<RST);															//PRIMER ESTADO RESET EN HIGH DEL GLCD
 }
 
 /********************************* CONFIGURACIONES INT EXTERNAS ***********************************/
@@ -166,9 +176,11 @@ void config_ext_int(void){
 
 void config_int1_2(void){
 	flag_now=1;									//BANDERA QUE AFIRMA QUE PASO EL PRIMER LOOP MENU
+	flag_rep=1;
 	max_opcion=3;								//CANTIDAD MAXIMA DE OPCIONES EN EL GLCD
 	bus_opcion=1;								//POSICION DEL CURSOR EN EL GLCD (VALOR INICIAL 1)
 	flag_confirm=0;								//LIMPIA LA BANDERA PORQUE YA PASO EL PRIMER LOOP MENU
+	flag_stop_comunicaciones=1;					//BANDERA PARA EL USO DEL BOTON DE RETROCESO
 	cli();
 	GICR|=(1<<INT1)|(1<<INT2);					//HABILITANDO INT1 E INT2
 	sei();
@@ -192,7 +204,6 @@ void puertos_entrada(void){
 void mover_cursor_cambios_menu(void){
 	mover_cursor();								//SUBRUTINA PARA MOVER EL CURSOR
 	mostrar_cambios_comunic();					//SUBRUTINA PARA MOSTRAR EL CAMBIO EN LA PANTALLA DEPENDIENDO LA POS DEL CURSOR
-	
 }
 
 void mover_cursor(void){
@@ -219,9 +230,57 @@ void mover_cursor(void){
 	
 }
 
-/********************************* CONFIGURACION UART ***********************************/
+/********************************* RETROCEDER UNA CONFIGURACION ***********************************/
+
+void retroceder (void){
+	
+	bool flag_b4=0;
+	
+	if (!(PIND&(1<<PIND7))){
+		
+		flag_b4=1;
+		
+		while(!(PIND&(1<<PIND7)));
+		
+		if(flag_b4){
+			
+			if(flag_stop_comunicaciones){
+				flag_now=0;
+				longjmp( inicio, 1 );
+			}
+			else if(flag_paridad_lugar){
+				flag_paridad_lugar=0;
+				longjmp( comunicaciones, 1 );
+			}
+			else if(max_opcion==4){
+				nbit=0;
+				longjmp( lugar_nbit, 1 );
+			}
+			else if(max_opcion==5){
+				paridad=0;
+				longjmp( lugar_paridad, 1 );
+			}
+			//else if(flag_now2){
+				//flag_now2=0;
+				//cli();
+				//GICR |= (1<<INT0)|(1<<INT2);
+				//sei();
+				//longjmp( lugar_baud, 1 );
+			//}
+			
+		}
+	}
+}
+
+
+/********************************* CONFIGURACION UART ********************************************/
 
 void config_uart(void){
+	
+	setjmp(lugar_paridad);								//LUGAR DE SALTO
+	
+	flag_stop_comunicaciones=0;
+	flag_paridad_lugar=1;
 	max_opcion=3;
 	bus_opcion=1;
 	flag_rep=1;
@@ -231,8 +290,12 @@ void config_uart(void){
 	{
 		mover_cursor();
 		mostrar_cambios_paridad();
+		retroceder();
 	}
 	
+	setjmp(lugar_nbit);									//LUGAR DE SALTO
+	
+	flag_paridad_lugar=0;
 	max_opcion=5;
 	bus_opcion=1;
 	flag_rep=1;
@@ -242,7 +305,10 @@ void config_uart(void){
 	while (flag_loop){
 		mover_cursor();
 		mostrar_cambios_nbit();
+		retroceder();
 	}
+	
+	setjmp(lugar_baud);									//LUGAR DE SALTO
 	
 	max_opcion=4;
 	bus_opcion=1;
@@ -252,6 +318,7 @@ void config_uart(void){
 	while(flag_loop){
 		mover_cursor();
 		mostrar_cambios_baudios();
+		retroceder();
 	}
 }
 
@@ -440,6 +507,7 @@ void envio_uart(void){
 	activacion_registros_uart();				// ACTIVO LA CONFIGURACION HECHA POR EL USUARIO
 	flag_now2=1;								// ACTIVO FLAG PARA UTILIZAR LA OTRA FUNCIONALIDAD DEL BOTON 2
 	flag_rep=1;									// BANDERA PARA SETEAR LA PANTALLA DE ERROR DE DATO ENVIADO
+	max_opcion=0;
 	
 	glcd_clearscreen();
 	write_small(25,30,"ESPERANDO AL",0);
@@ -449,14 +517,16 @@ void envio_uart(void){
 	
 	error_paridad();
 	
-	if(flag_stop){
+	//retroceder();
+	
+	if(flag_stop_comunicaciones){
 		flag_now=0;
 		flag_now2=0;
-		flag_stop=0;
+		flag_stop_comunicaciones=0;
 		flag_loop=1;
 		mybuffer=' ';
 		
-		longjmp( entorno, 1 );
+		longjmp( inicio, 1 );
 	}
 	
 	if (mybuffer=='1'){
@@ -469,7 +539,7 @@ void envio_uart(void){
 		int temp=0;
 		char s[10];
 		
-		while(flag_stop==0){
+		while(flag_stop_comunicaciones==0){
 		
 			while(!(UCSRA&(1<<UDRE)));
 			temp++;
@@ -618,7 +688,7 @@ void error_paridad(void){
 void clear_all(void){
 	flag_now=0;
 	flag_now2=0;
-	flag_stop=0;
+	flag_stop_comunicaciones=0;
 	flag_loop=1;
 	mybuffer=' ';
 	paridad=0;
@@ -678,7 +748,7 @@ void mensaje_final(void){
 	//sei();
 	//flag_stop=0;
 	_delay_ms(3000);
-	longjmp( entorno, 1 );
+	longjmp( inicio, 1 );
 }
 
 
@@ -707,7 +777,7 @@ ISR(INT0_vect){
 ISR(INT1_vect){
 	if(flag_now2==1)
 	{
-		flag_stop=1;
+		flag_stop_comunicaciones=1;
 	}
 	else
 	{
@@ -738,9 +808,9 @@ ISR(USART_RXC_vect){								//INTERRUPCION PARA LA RECEPCION DE DATOS UART
 
 
 
-ISR(TIMER1_COMPA_vect){
-	flag_stop=1;	
-}
+//ISR(TIMER1_COMPA_vect){
+	//flag_stop_comunicaciones=1;	
+//}
 
 
 //PARA TENER EL DATO EN 2 UINT8_T
