@@ -18,6 +18,7 @@
 #include "librerias/config.h"
 #include "librerias/abecedario.h"
 #include "librerias/glcd.h"
+#include "librerias/i2c.h"
 
 /**********************************TABLA DE IGUALDADES************************************/
 
@@ -63,6 +64,7 @@ void clear_all(void);
 void mensaje_final(void);
 void error_paridad(void);
 void retroceder(void);
+void envio_i2c(void);
 //void timer_init(void);
 //void timer_on(void);
 //void timer_off(void);
@@ -77,7 +79,6 @@ volatile bool flag_loop=1;
 volatile bool flag_now2=0;
 volatile bool flag_stop_comunicaciones=0;;
 volatile bool flag_paridad_lugar=0;
-volatile uint8_t error_uart=0;
 uint8_t bus_opcion=1;
 uint8_t max_opcion;
 uint8_t min_opcion=1;
@@ -135,6 +136,8 @@ int main(void)
 			else if (comunic==2)										//CONFIGURACION DEL I2C
 			{
 				puertos_entrada();										//DEFINO TODO LOS PUERTOS DE COMUNICACION COMO ENTRADA (POR PRECAUCIÓN)
+				
+				envio_i2c();
 			}
 			else if (comunic==3)										//CONFIGURACION DEL SPI
 			{
@@ -260,14 +263,6 @@ void retroceder (void){
 				paridad=0;
 				longjmp( lugar_paridad, 1 );
 			}
-			//else if(flag_now2){
-				//flag_now2=0;
-				//cli();
-				//GICR |= (1<<INT0)|(1<<INT2);
-				//sei();
-				//longjmp( lugar_baud, 1 );
-			//}
-			
 		}
 	}
 }
@@ -499,37 +494,10 @@ void mostrar_cambios_baudios(void){
 
 void envio_uart(void){
 	
-	//VARIABLES LOCALES
-	jmp_buf entorno_menu;						//VARIABLE PARA HACER SALTOS EN LA FUNCION
+		//char dato[12]="hello world\r";				//DATO DE EJEMPLO PARA LA SIMULACION
 	
-	//char dato[12]="hello world\r";				//DATO DE EJEMPLO PARA LA SIMULACION
-	
-	activacion_registros_uart();				// ACTIVO LA CONFIGURACION HECHA POR EL USUARIO
-	flag_now2=1;								// ACTIVO FLAG PARA UTILIZAR LA OTRA FUNCIONALIDAD DEL BOTON 2
-	flag_rep=1;									// BANDERA PARA SETEAR LA PANTALLA DE ERROR DE DATO ENVIADO
-	max_opcion=0;
-	
-	glcd_clearscreen();
-	write_small(25,30,"ESPERANDO AL",0);
-	write_small(36,42,"MASTER",0);
-	
-	setjmp(entorno_menu);						//EN ESTE LUGAR LLEGARAN LOS SALTOS
-	
-	error_paridad();
-	
-	//retroceder();
-	
-	if(flag_stop_comunicaciones){
-		flag_now=0;
-		flag_now2=0;
-		flag_stop_comunicaciones=0;
-		flag_loop=1;
-		mybuffer=' ';
-		
-		longjmp( inicio, 1 );
-	}
-	
-	if (mybuffer=='1'){
+		activacion_registros_uart();				// ACTIVO LA CONFIGURACION HECHA POR EL USUARIO
+		flag_now2=1;								// ACTIVO FLAG PARA UTILIZAR LA OTRA FUNCIONALIDAD DEL BOTON 2
 		
 		glcd_clearscreen();
 		write_small(15,19,"ENVIO DE DATOS",0);
@@ -543,7 +511,7 @@ void envio_uart(void){
 		
 			while(!(UCSRA&(1<<UDRE)));
 			temp++;
-			UDR=temp;
+			UDR=temp+'0';
 			glcd_clearscreen2();
 			sprintf(s,"%u C",temp);
 			write_small(45,70,s,0);
@@ -552,26 +520,6 @@ void envio_uart(void){
 		}
 		
 		clear_all();
-		
-	}
-	else{
-		if(mybuffer==' ' || mybuffer=='1'){
-			longjmp( entorno_menu, 1 );
-		}
-		else{			
-			if(flag_rep){
-				flag_rep=0;
-				glcd_clearscreen();
-				write_small(15,20,"DATO ERRONEO :(",0);
-				write_small(30,5,"ENVIAR DATO CORRECTO",0);
-				write_small(45,3,"COMANDO CORRECTO -> 1",0);
-				longjmp( entorno_menu, 1 );
-			}
-			else{
-				longjmp( entorno_menu, 1 );
-			}
-		}
-	}
 }
 
 
@@ -664,25 +612,6 @@ void registro_baud(void){
 	}
 }
 
-/********************************* ERROR PARA BIT DE PARIDAD ***********************************/
-
-void error_paridad(void){
-	if(error_uart){
-		error_uart=0;
-		glcd_clearscreen();
-		write_small(20,18,"ERROR DE PARIDAD",0);
-		write_small(32,38,"REVISE SU",0);
-		write_small(45,22,"CONFIGURACION :)",0);
-	}
-	else if(error_uart==2){
-		error_uart=0;
-		glcd_clearscreen();
-		write_small(20,18,"ERROR DE TRAMA",0);
-		write_small(32,38,"REVISE SU",0);
-		write_small(45,22,"CONFIGURACION :)",0);
-	}
-}
-
 
 /********************************* LIMPIEZA DE TODO LOS REGISTROS UTILIZADOS ***********************************/
 void clear_all(void){
@@ -731,6 +660,51 @@ void clear_all(void){
 	//TCNT1L=0X00;
 	//TCNT1H=0x00;
 //}
+
+/********************************* ENVIO I2C ***********************************/
+void envio_i2c(void){
+	cli();
+	TWI_Init();
+	sei();
+	init_temp();
+	flag_now2=1;								// ACTIVO FLAG PARA UTILIZAR LA OTRA FUNCIONALIDAD DEL BOTON 2
+	flag_stop_comunicaciones=0;
+	float dato_temp;
+	char s[10];
+	
+	glcd_clearscreen();
+	write_small(15,19,"ENVIO DE DATOS",0);
+	write_small(30,35,"ACTIVADO",0);
+	write_small(45,30,"TEMP = ",0);
+	
+	while(flag_stop_comunicaciones==0){
+		
+		init_temp();
+		
+		dato_temp=read_full_temp();
+
+		uint8_t datoh= trunc(dato_temp);
+		uint8_t datol=(dato_temp-trunc(dato_temp))*100;
+		datol=trunc(datol);
+		
+		glcd_clearscreen2();
+		sprintf(s,"%u.%u C",datoh,datol);
+		write_small(45,70,s,0);
+		
+		_delay_ms(1000);
+	}
+	
+	flag_now=0;
+	flag_now2=0;
+	flag_stop_comunicaciones=0;
+	flag_loop=1;
+	
+	TWI_stopCond();
+	
+}
+
+
+
 
 
 /********************************* MENSAJE FINAL ***********************************/
@@ -788,24 +762,6 @@ ISR(INT1_vect){
 ISR(INT2_vect){
 	flag_b3=1;										//BANDERA PARA RETROCEDER EL CURSOR EN 1
 }
-
-ISR(USART_RXC_vect){								//INTERRUPCION PARA LA RECEPCION DE DATOS UART
-	
-	if(UCSRA&(1<<FE)){
-		uint8_t temp;
-		error_uart=2;	
-		temp= UDR;
-	}
-	else if(UCSRA&(1<<2)){
-		uint8_t temp;
-		error_uart=1;								//REUTILIZANDO ESTE FLAG PARA MOSTRAR EL ERROR DE PARIDAD
-		temp= UDR;
-	}
-	else{
-		mybuffer= UDR;
-	}
-}
-
 
 
 //ISR(TIMER1_COMPA_vect){
