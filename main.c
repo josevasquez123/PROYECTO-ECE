@@ -6,7 +6,6 @@
  */ 
 
 #define F_CPU 16000000UL
-#define fclk 0.3
 
 #include <util/delay.h>
 #include <avr/io.h>
@@ -15,10 +14,9 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <setjmp.h>
-#include "librerias/config.h"
-#include "librerias/abecedario.h"
-#include "librerias/glcd.h"
-#include "librerias/i2c.h"
+#include "lib/config.h"
+#include "lib/lcd.h"
+#include "lib/i2c.h"
 
 /**********************************TABLA DE IGUALDADES************************************/
 
@@ -46,6 +44,7 @@
 /**********************************SUBRUTINAS************************************/
 void config(void);
 void config_ext_int(void);
+void temp();
 void mover_cursor_cambios_menu(void);
 void mover_cursor(void);
 void mostrar_cambios_comunic(void);
@@ -65,6 +64,10 @@ void mensaje_final(void);
 void error_paridad(void);
 void retroceder(void);
 void envio_i2c(void);
+void intro_comunicaciones(void);
+void intro_paridad(void);
+void intro_nbit(void);
+void intro_baud(void);
 //void timer_init(void);
 //void timer_on(void);
 //void timer_off(void);
@@ -74,7 +77,6 @@ volatile bool flag_b2=0;
 volatile bool flag_b3=0;
 volatile bool flag_rep=1;
 volatile bool flag_confirm=0;
-volatile bool flag_now=0;
 volatile bool flag_loop=1;
 volatile bool flag_now2=0;
 volatile bool flag_stop_comunicaciones=0;;
@@ -100,34 +102,53 @@ int main(void)
 	config();								//CONFIGURACIONES PRINCIPALES DEL MICRO
 	
 	//PRIMERA INTRODUCCION EN LA PANTALLA GLCD
-	glcd_on();
+	Lcd_Init();
 	
 	setjmp(inicio);
 	cli();
 	config_ext_int();						//CONFIGURACION DE INT0,INT1 E INT2
 	sei();
-	glcd_clearscreen();
-	write_small(25,40,"PROYECTO",0);
-	write_small(36,53,"ECE",0);
+	
+	Lcd_Clear();
+	Lcd_Set_Cursor(1, 5);
+	Lcd_Write_String("PROYECTO");
+	Lcd_Set_Cursor(2, 7);
+	Lcd_Write_String("ECE");
+	
+	_delay_ms(800);
+	
+	for (int i=0; i<16;i++)
+	{
+		_delay_ms(100);
+		Lcd_Shift_Right();
+	}
+	_delay_ms(500);
+	
+	
 	
     while (1) 
     {
-		
-		if(flag_confirm)
-		{	
+			//EJEMPLO TEMPORAL DE COMO MOSTRAREMOS LA TEMP 
+			while(flag_loop)
+			{
+				temp();
+			}
+			
 			setjmp(comunicaciones);										//PUNTO DE SALTO
 			
 			config_int1_2();											//HABILITO LAS INT EXTERNAS 1 Y 2
+			
+			intro_comunicaciones();
 			
 			while(flag_loop)
 			{
 				mover_cursor_cambios_menu();							//ELECCION DEL TIPO DE COMUNICACION A USAR
 				retroceder();
 			}
-									
+			
 			if (comunic==1)												//CONFIGURACION DEL UART
 			{
-				config_uart();	
+				config_uart();
 				
 				puertos_entrada();										//DEFINO TODO LOS PUERTOS DE COMUNICACION COMO ENTRADA (POR PRECAUCIÓN)
 
@@ -141,15 +162,13 @@ int main(void)
 			}
 			else if (comunic==3)										//CONFIGURACION DEL SPI
 			{
-				puertos_entrada();										//DEFINO TODO LOS PUERTOS DE COMUNICACION COMO ENTRADA (POR PRECAUCIÓN)	
+				puertos_entrada();										//DEFINO TODO LOS PUERTOS DE COMUNICACION COMO ENTRADA (POR PRECAUCIÓN)
 			}
 			
 			mensaje_final();
-		}
-    }
+	}
 }
-
-
+	
 
 
 /*****************************************************SUBRUTINAS********************************************************/
@@ -159,11 +178,10 @@ int main(void)
 
 void config(void){
 	DDRA=0xff;																	//DEFINIR PUERTO DE DATOS DE GLCD COMO SALIDA
-	DDRC=0xfc;																	//DEFINIR PUERTO DE ESTADOS DE GLCD COMO  SALIDA
 	DDRD &=~ (1<<DDD2)|(1<<DDD3)|(1<<DDD7);										//INT0,INT1,INT2 Y B4 (BOTON) COMO ENTRADA
 	DDRB &=~ (1<<DDB2);
-	GLCDPORT|=(1<<RST);															//PRIMER ESTADO RESET EN HIGH DEL GLCD
 }
+
 
 /********************************* CONFIGURACIONES INT EXTERNAS ***********************************/
 
@@ -178,7 +196,8 @@ void config_ext_int(void){
 /********************************* HABILITA BOTON 2 Y 3 ***********************************/
 
 void config_int1_2(void){
-	flag_now=1;									//BANDERA QUE AFIRMA QUE PASO EL PRIMER LOOP MENU
+	flag_loop=1;
+	
 	flag_rep=1;
 	max_opcion=3;								//CANTIDAD MAXIMA DE OPCIONES EN EL GLCD
 	bus_opcion=1;								//POSICION DEL CURSOR EN EL GLCD (VALOR INICIAL 1)
@@ -248,7 +267,7 @@ void retroceder (void){
 		if(flag_b4){
 			
 			if(flag_stop_comunicaciones){
-				flag_now=0;
+				
 				longjmp( inicio, 1 );
 			}
 			else if(flag_paridad_lugar){
@@ -281,6 +300,8 @@ void config_uart(void){
 	flag_rep=1;
 	flag_loop=1;
 	
+	intro_paridad();
+	
 	while(flag_loop)
 	{
 		mover_cursor();
@@ -296,6 +317,7 @@ void config_uart(void){
 	flag_rep=1;
 	flag_loop=1;
 	
+	intro_nbit();
 
 	while (flag_loop){
 		mover_cursor();
@@ -309,6 +331,8 @@ void config_uart(void){
 	bus_opcion=1;
 	flag_rep=1;
 	flag_loop=1;
+	
+	intro_baud();
 	
 	while(flag_loop){
 		mover_cursor();
@@ -324,30 +348,42 @@ void mostrar_cambios_comunic(void){
 		switch(bus_opcion){
 			
 			case 1:
-			comunic=1;
-			glcd_clearscreen();
-			write_small(0,0,"TIPOS DE COMUNICACION",0);
-			write_small(15,0,"1) UART (SELECCIONADO)",0);
-			write_small(30,0,"2) I2C",0);
-			write_small(45,0,"3) SPI",0);
+			comunic=3;
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("SPI(S)  I2C");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("UART");
+			//write_small(0,0,"TIPOS DE COMUNICACION",0);
+			//write_small(15,0,"1) UART (SELECCIONADO)",0);
+			//write_small(30,0,"2) I2C",0);
+			//write_small(45,0,"3) SPI",0);
 			break;
 			
 			case 2:
 			comunic=2;
-			glcd_clearscreen();
-			write_small(0,0,"TIPOS DE COMUNICACION",0);
-			write_small(15,0,"1) UART",0);
-			write_small(30,0,"2) I2C (SELECCIONADO)",0);
-			write_small(45,0,"3) SPI",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("SPI     I2C(S)");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("UART");
+			//write_small(0,0,"TIPOS DE COMUNICACION",0);
+			//write_small(15,0,"1) UART",0);
+			//write_small(30,0,"2) I2C (SELECCIONADO)",0);
+			//write_small(45,0,"3) SPI",0);
 			break;
 			
 			case 3:
-			comunic=3;
-			glcd_clearscreen();
-			write_small(0,0,"TIPOS DE COMUNICACION",0);
-			write_small(15,0,"1) UART",0);
-			write_small(30,0,"2) I2C",0);
-			write_small(45,0,"3) SPI (SELECCIONADO)",0);
+			comunic=1;
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("SPI     I2C");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("UART(S)");
+			//write_small(0,0,"TIPOS DE COMUNICACION",0);
+			//write_small(15,0,"1) UART",0);
+			//write_small(30,0,"2) I2C",0);
+			//write_small(45,0,"3) SPI (SELECCIONADO)",0);
 			break;
 		}
 		flag_rep=0;
@@ -360,29 +396,41 @@ void mostrar_cambios_paridad(void){
 		switch (bus_opcion){
 			case 1:
 			paridad=2;
-			glcd_clearscreen();
-			write_small(0,0,"TIPOS DE BIT DE PARIDAD",0);
-			write_small(15,0,"1) PAR (SELECCIONADO)",0);
-			write_small(30,0,"2) IMPAR",0);
-			write_small(45,0,"3) NO PARIDAD",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("PAR(S)  IMPAR");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("NO PARIDAD");
+			//write_small(0,0,"TIPOS DE BIT DE PARIDAD",0);
+			//write_small(15,0,"1) PAR (SELECCIONADO)",0);
+			//write_small(30,0,"2) IMPAR",0);
+			//write_small(45,0,"3) NO PARIDAD",0);
 			break;
 			
 			case 2:
 			paridad=1;
-			glcd_clearscreen();
-			write_small(0,0,"TIPOS DE BIT DE PARIDAD",0);
-			write_small(15,0,"1) PAR",0);
-			write_small(30,0,"2) IMPAR (SELECCIONADO)",0);
-			write_small(45,0,"3) NO PARIDAD",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("PAR     IMPAR(S)");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("NO PARIDAD");
+			//write_small(0,0,"TIPOS DE BIT DE PARIDAD",0);
+			//write_small(15,0,"1) PAR",0);
+			//write_small(30,0,"2) IMPAR (SELECCIONADO)",0);
+			//write_small(45,0,"3) NO PARIDAD",0);
 			break;
 			
 			case 3:
 			paridad=3;
-			glcd_clearscreen();
-			write_small(0,0,"TIPOS DE BIT DE PARIDAD",0);
-			write_small(15,0,"1) PAR",0);
-			write_small(30,0,"2) IMPAR",0);
-			write_small(45,0,"3) NO PARIDAD (SELEC)",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("PAR     IMPAR");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("NO PARIDAD(S)");
+			//write_small(0,0,"TIPOS DE BIT DE PARIDAD",0);
+			//write_small(15,0,"1) PAR",0);
+			//write_small(30,0,"2) IMPAR",0);
+			//write_small(45,0,"3) NO PARIDAD (SELEC)",0);
 			break;
 		}
 		flag_rep=0;
@@ -395,48 +443,68 @@ void mostrar_cambios_nbit(void){
 		switch (bus_opcion){
 			case 1:
 			nbit=5;
-			glcd_clearscreen();
-			write_small(0,0,"CANTIDAD DE BITS",0);
-			write_small(15,0,"1) 5 (S)    2) 6",0);
-			write_small(30,0,"3) 7        4) 8",0);
-			write_small(45,0,"5) 9",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("5(S)  6     7");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("8     9");
+			//write_small(0,0,"CANTIDAD DE BITS",0);
+			//write_small(15,0,"1) 5 (S)    2) 6",0);
+			//write_small(30,0,"3) 7        4) 8",0);
+			//write_small(45,0,"5) 9",0);
 			break;
 			
 			case 2:
 			nbit=6;
-			glcd_clearscreen();
-			write_small(0,0,"CANTIDAD DE BITS",0);
-			write_small(15,0,"1) 5        2) 6 (S)",0);
-			write_small(30,0,"3) 7        4) 8",0);
-			write_small(45,0,"5) 9",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("5     6(S)  7");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("8     9");
+			//write_small(0,0,"CANTIDAD DE BITS",0);
+			//write_small(15,0,"1) 5        2) 6 (S)",0);
+			//write_small(30,0,"3) 7        4) 8",0);
+			//write_small(45,0,"5) 9",0);
 			break;
 			
 			case 3:
 			nbit=7;
-			glcd_clearscreen();
-			write_small(0,0,"CANTIDAD DE BITS",0);
-			write_small(15,0,"1) 5        2) 6",0);
-			write_small(30,0,"3) 7 (S)    4) 8",0);
-			write_small(45,0,"5) 9",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("5     6     7(S)");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("8     9");
+			//write_small(0,0,"CANTIDAD DE BITS",0);
+			//write_small(15,0,"1) 5        2) 6",0);
+			//write_small(30,0,"3) 7 (S)    4) 8",0);
+			//write_small(45,0,"5) 9",0);
 			break;
 			
 			case 4:
 			nbit=8;
-			glcd_clearscreen();
-			write_small(0,0,"CANTIDAD DE BITS",0);
-			write_small(15,0,"1) 5        2) 6",0);
-			write_small(30,0,"3) 7        4) 8 (S)",0);
-			write_small(45,0,"5) 9",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("5     6     7");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("8(S)  9");
+			//write_small(0,0,"CANTIDAD DE BITS",0);
+			//write_small(15,0,"1) 5        2) 6",0);
+			//write_small(30,0,"3) 7        4) 8 (S)",0);
+			//write_small(45,0,"5) 9",0);
 			break;
 
 			case 5:
 			nbit=9;
-			glcd_clearscreen();
-			write_small(0,0,"CANTIDAD DE BITS",0);
-			write_small(15,0,"1) 5        2) 6",0);
-			write_small(30,0,"3) 7        4) 8",0);
-			write_small(45,0,"5) 9 (S)",0);
-			break;			
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("5     6     7");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("8     9(S)");
+			//write_small(0,0,"CANTIDAD DE BITS",0);
+			//write_small(15,0,"1) 5        2) 6",0);
+			//write_small(30,0,"3) 7        4) 8",0);
+			//write_small(45,0,"5) 9 (S)",0);
+			break;
 		}
 		flag_rep=0;
 	}
@@ -447,42 +515,58 @@ void mostrar_cambios_baudios(void){
 		switch (bus_opcion){
 			case 1:
 			baud=48;
-			glcd_clearscreen();
-			write_small(0,0,"VELOCIDAD BAUDIO",0);
-			write_small(13,0,"1) 4800 (SELECCIONADO)",0);
-			write_small(25,0,"2) 9600",0);
-			write_small(39,0,"3) 14.4K",0);
-			write_small(52,0,"4) 19.2K",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("4800(S)  9600");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("14.4K    19.2K");
+			//write_small(0,0,"VELOCIDAD BAUDIO",0);
+			//write_small(13,0,"1) 4800 (SELECCIONADO)",0);
+			//write_small(25,0,"2) 9600",0);
+			//write_small(39,0,"3) 14.4K",0);
+			//write_small(52,0,"4) 19.2K",0);
 			break;
 			
 			case 2:
 			baud=96;
-			glcd_clearscreen();
-			write_small(0,0,"VELOCIDAD BAUDIO",0);
-			write_small(13,0,"1) 4800",0);
-			write_small(25,0,"2) 9600 (SELECCIONADO)",0);
-			write_small(39,0,"3) 14.4K",0);
-			write_small(52,0,"4) 19.2K",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("4800     9600(S)");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("14.4K    19.2K");
+			//write_small(0,0,"VELOCIDAD BAUDIO",0);
+			//write_small(13,0,"1) 4800",0);
+			//write_small(25,0,"2) 9600 (SELECCIONADO)",0);
+			//write_small(39,0,"3) 14.4K",0);
+			//write_small(52,0,"4) 19.2K",0);
 			break;
 			
 			case 3:
 			baud=144;
-			glcd_clearscreen();
-			write_small(0,0,"VELOCIDAD BAUDIO",0);
-			write_small(13,0,"1) 4800",0);
-			write_small(25,0,"2) 9600",0);
-			write_small(39,0,"3) 14.4K (SELECCIONADO)",0);
-			write_small(52,0,"4) 19.2K",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("4800     9600");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("14.4K(S)   19.2K");
+			//write_small(0,0,"VELOCIDAD BAUDIO",0);
+			//write_small(13,0,"1) 4800",0);
+			//write_small(25,0,"2) 9600",0);
+			//write_small(39,0,"3) 14.4K (SELECCIONADO)",0);
+			//write_small(52,0,"4) 19.2K",0);
 			break;
 			
 			case 4:
 			baud=192;
-			glcd_clearscreen();
-			write_small(0,0,"VELOCIDAD BAUDIO",0);
-			write_small(13,0,"1) 4800",0);
-			write_small(25,0,"2) 9600",0);
-			write_small(39,0,"3) 14.4K",0);
-			write_small(52,0,"4) 19.2K (SELECCIONADO)",0);
+			Lcd_Clear();
+			Lcd_Set_Cursor(1, 1);
+			Lcd_Write_String("4800     9600");
+			Lcd_Set_Cursor(2, 1);
+			Lcd_Write_String("14.4K   19.2K(S)");
+			//write_small(0,0,"VELOCIDAD BAUDIO",0);
+			//write_small(13,0,"1) 4800",0);
+			//write_small(25,0,"2) 9600",0);
+			//write_small(39,0,"3) 14.4K",0);
+			//write_small(52,0,"4) 19.2K (SELECCIONADO)",0);
 			break;
 		}
 		flag_rep=0;
@@ -494,32 +578,39 @@ void mostrar_cambios_baudios(void){
 
 void envio_uart(void){
 	
-		//char dato[12]="hello world\r";				//DATO DE EJEMPLO PARA LA SIMULACION
+	//char dato[12]="hello world\r";				//DATO DE EJEMPLO PARA LA SIMULACION
 	
-		activacion_registros_uart();				// ACTIVO LA CONFIGURACION HECHA POR EL USUARIO
-		flag_now2=1;								// ACTIVO FLAG PARA UTILIZAR LA OTRA FUNCIONALIDAD DEL BOTON 2
+	activacion_registros_uart();				// ACTIVO LA CONFIGURACION HECHA POR EL USUARIO
+	flag_now2=1;								// ACTIVO FLAG PARA UTILIZAR LA OTRA FUNCIONALIDAD DEL BOTON 2
+	
+	Lcd_Clear();
+	Lcd_Set_Cursor(1, 2);
+	Lcd_Write_String("ENVIO DE DATOS");
+	Lcd_Set_Cursor(2, 3);
+	Lcd_Write_String("TEMP =");
+	//write_small(15,19,"ENVIO DE DATOS",0);
+	//write_small(30,35,"ACTIVADO",0);
+	//write_small(45,30,"TEMP = ",0);
+	//SOLO PARA DEMOSTRACION
+	int temp=0;
+	char s[10];
+	
+	while(flag_stop_comunicaciones==0){
 		
-		glcd_clearscreen();
-		write_small(15,19,"ENVIO DE DATOS",0);
-		write_small(30,35,"ACTIVADO",0);
-		write_small(45,30,"TEMP = ",0);
-		//SOLO PARA DEMOSTRACION
-		int temp=0;
-		char s[10];
-		
-		while(flag_stop_comunicaciones==0){
-		
-			while(!(UCSRA&(1<<UDRE)));
-			temp++;
-			UDR=temp+'0';
-			glcd_clearscreen2();
-			sprintf(s,"%u C",temp);
-			write_small(45,70,s,0);
+		while(!(UCSRA&(1<<UDRE)));
+		temp++;
+		UDR=temp+'0';
+		Lcd_Set_Cursor(2, 10);
+		Lcd_Write_String("     ");
+		sprintf(s,"%u C",temp);
+		Lcd_Set_Cursor(2, 10);
+		Lcd_Write_String(s);
+		//write_small(45,70,s,0);
 
-			_delay_ms(1000);
-		}
-		
-		clear_all();
+		_delay_ms(1000);
+	}
+	
+	clear_all();
 }
 
 
@@ -527,12 +618,12 @@ void activacion_registros_uart(void){
 	DDRD|=(1<<DDD1);							//TXD COMO SALIDA
 	cli();
 	registro_baud();
-	UCSRC|=(1<<URSEL);	
+	UCSRC|=(1<<URSEL);
 	UCSRC&=~(1<<UMSEL);							//MODO ASINCRONO
 	UCSRA|=(1<<U2X);							//DOBLE VELOCIDAD DE TRANSMISION
 	UCSRB|=(1<<RXEN)|(1<<TXEN)|(1<<RXCIE);		//HABILITA LA TRANSMISION, RECEPCION E INT POR RECEPCION
 	
-	registro_bit_paridad();						
+	registro_bit_paridad();
 	registro_cantidad_bits();
 	sei();
 }
@@ -615,7 +706,7 @@ void registro_baud(void){
 
 /********************************* LIMPIEZA DE TODO LOS REGISTROS UTILIZADOS ***********************************/
 void clear_all(void){
-	flag_now=0;
+	
 	flag_now2=0;
 	flag_stop_comunicaciones=0;
 	flag_loop=1;
@@ -638,27 +729,27 @@ void clear_all(void){
 /************************************ TIMER 3 SEGUNDOS **************************************/
 
 //void timer_init(void){
-	//TCCR1A &=~(1<<WGM11)|(1<<WGM10);
-	//TCCR1B |=(1<<WGM12);
-	//TCCR1B &=~(1<<WGM13);
+//TCCR1A &=~(1<<WGM11)|(1<<WGM10);
+//TCCR1B |=(1<<WGM12);
+//TCCR1B &=~(1<<WGM13);
 //
-	//OCR1A = (F_CPU/1024/fclk)-1;
+//OCR1A = (F_CPU/1024/fclk)-1;
 //
-	//TIMSK |= (1<<OCIE1A);
+//TIMSK |= (1<<OCIE1A);
 //}
 //
 //void timer_on(void){
-	//TCNT1L=0X00;
-	//TCNT1H=0x00;
-	//TCCR1B |=(1<<CS12)|(1<<CS10);
-	//TCCR1B &=~(1<<CS11);
+//TCNT1L=0X00;
+//TCNT1H=0x00;
+//TCCR1B |=(1<<CS12)|(1<<CS10);
+//TCCR1B &=~(1<<CS11);
 //}
 //
 //void timer_off(void){
-	//TCCR1B &=~(1<<CS11)|(1<<CS12)|(1<<CS10);
-	//TIMSK &=~ (1<<OCIE1A);
-	//TCNT1L=0X00;
-	//TCNT1H=0x00;
+//TCCR1B &=~(1<<CS11)|(1<<CS12)|(1<<CS10);
+//TIMSK &=~ (1<<OCIE1A);
+//TCNT1L=0X00;
+//TCNT1H=0x00;
 //}
 
 /********************************* ENVIO I2C ***********************************/
@@ -672,10 +763,14 @@ void envio_i2c(void){
 	float dato_temp;
 	char s[10];
 	
-	glcd_clearscreen();
-	write_small(15,19,"ENVIO DE DATOS",0);
-	write_small(30,35,"ACTIVADO",0);
-	write_small(45,30,"TEMP = ",0);
+	Lcd_Clear();
+	Lcd_Set_Cursor(1, 2);
+	Lcd_Write_String("ENVIO DE DATOS");
+	Lcd_Set_Cursor(2, 3);
+	Lcd_Write_String("TEMP =");
+	//write_small(15,19,"ENVIO DE DATOS",0);
+	//write_small(30,35,"ACTIVADO",0);
+	//write_small(45,30,"TEMP = ",0);
 	
 	while(flag_stop_comunicaciones==0){
 		
@@ -687,14 +782,17 @@ void envio_i2c(void){
 		uint8_t datol=(dato_temp-trunc(dato_temp))*100;
 		datol=trunc(datol);
 		
-		glcd_clearscreen2();
+		Lcd_Set_Cursor(2, 10);
+		Lcd_Write_String("     ");
 		sprintf(s,"%u.%u C",datoh,datol);
-		write_small(45,70,s,0);
+		Lcd_Set_Cursor(2, 10);
+		Lcd_Write_String(s);
+		//write_small(45,70,s,0);
 		
 		_delay_ms(1000);
 	}
 	
-	flag_now=0;
+	
 	flag_now2=0;
 	flag_stop_comunicaciones=0;
 	flag_loop=1;
@@ -703,15 +801,59 @@ void envio_i2c(void){
 	
 }
 
+/*********************************** TEMP **************************************/
+
+void temp(void){
+	cli();
+	TWI_Init();
+	sei();
+	init_temp();
+
+	float dato_temp;
+	char s[10];
+	
+	Lcd_Clear();
+	Lcd_Set_Cursor(1, 3);
+	Lcd_Write_String("TEMPERATURA");
+	//write_small(15,19,"ENVIO DE DATOS",0);
+	//write_small(30,35,"ACTIVADO",0);
+	//write_small(45,30,"TEMP = ",0);
+	
+	while(flag_loop){
+		
+		init_temp();
+		
+		dato_temp=read_full_temp();
+
+		uint8_t datoh= trunc(dato_temp);
+		uint8_t datol=(dato_temp-trunc(dato_temp))*100;
+		datol=trunc(datol);
+		
+		Lcd_Set_Cursor(2, 6);
+		Lcd_Write_String("     ");
+		sprintf(s,"%u.%u C",datoh,datol);
+		Lcd_Set_Cursor(2, 6);
+		Lcd_Write_String(s);
+		//write_small(45,70,s,0);
+		
+		_delay_ms(1000);
+	}
+	
+	TWI_stopCond();
+}
 
 
 
 
 /********************************* MENSAJE FINAL ***********************************/
 void mensaje_final(void){
-	glcd_clearscreen();
-	write_small(25,27,"COMUNICACION",0);
-	write_small(36,30,"TERMINADA :)",0);
+	Lcd_Clear();
+	Lcd_Set_Cursor(1, 3);
+	Lcd_Write_String("COMUNICACION");
+	Lcd_Set_Cursor(2, 3);
+	Lcd_Write_String("TERMINADA :)");
+	//write_small(25,27,"COMUNICACION",0);
+	//write_small(36,30,"TERMINADA :)",0);
 	//cli();
 	//timer_init();
 	//timer_on();
@@ -726,6 +868,78 @@ void mensaje_final(void){
 }
 
 
+/********************************* INTRODUCCIONES LCD ***********************************/
+void intro_comunicaciones(void)
+{
+	Lcd_Clear();
+	Lcd_Set_Cursor(1, 5);
+	Lcd_Write_String("TIPOS DE");
+	Lcd_Set_Cursor(2, 2);
+	Lcd_Write_String("COMUNICACIONES");
+
+	_delay_ms(800);
+
+	for (int i=0; i<16;i++)
+	{
+		_delay_ms(100);
+		Lcd_Shift_Right();
+	}
+	_delay_ms(500);
+}
+
+void intro_paridad(void)
+{
+	Lcd_Clear();
+	Lcd_Set_Cursor(1, 5);
+	Lcd_Write_String("TIPOS DE");
+	Lcd_Set_Cursor(2, 2);
+	Lcd_Write_String("BIT DE PARIDAD");
+
+	_delay_ms(800);
+
+	for (int i=0; i<16;i++)
+	{
+		_delay_ms(100);
+		Lcd_Shift_Right();
+	}
+	_delay_ms(500);
+}
+
+void intro_nbit(void)
+{
+	Lcd_Clear();
+	Lcd_Set_Cursor(1, 3);
+	Lcd_Write_String("CANTIDAD DE");
+	Lcd_Set_Cursor(2, 7);
+	Lcd_Write_String("BITS");
+
+	_delay_ms(800);
+
+	for (int i=0; i<16;i++)
+	{
+		_delay_ms(100);
+		Lcd_Shift_Right();
+	}
+	_delay_ms(500);
+}
+
+void intro_baud(void)
+{
+	Lcd_Clear();
+	Lcd_Set_Cursor(1, 2);
+	Lcd_Write_String("VELOCIDAD DE");
+	Lcd_Set_Cursor(2, 5);
+	Lcd_Write_String("BAUDIOS");
+
+	_delay_ms(800);
+
+	for (int i=0; i<16;i++)
+	{
+		_delay_ms(100);
+		Lcd_Shift_Right();
+	}
+	_delay_ms(500);
+}
 
 
 
@@ -737,15 +951,8 @@ void mensaje_final(void){
 
 ISR(INT0_vect){
 	
-	if (flag_now){
 		flag_loop=0;								//BANDERA PARA ROMPER EL PRIMER LOOP DE LA CONFIG UART
 		flag_rep=1;									//BANDERA PARA MOSTRAR CAMBIOS EN LA PANTALLA GLCD'
-	}
-	
-	else{
-		flag_confirm=1;								//BANDERA DE CONFIRMACION
-		flag_rep=1;									//BANDERA PARA MOSTRAR CAMBIOS EN LA PANTALLA GLCD'
-	}
 }
 
 ISR(INT1_vect){
@@ -755,8 +962,8 @@ ISR(INT1_vect){
 	}
 	else
 	{
-	flag_b2=1;										//BANDERA PARA MOVER EL CURSOR EN 1
-	}										
+		flag_b2=1;										//BANDERA PARA MOVER EL CURSOR EN 1
+	}
 }
 
 ISR(INT2_vect){
@@ -765,13 +972,13 @@ ISR(INT2_vect){
 
 
 //ISR(TIMER1_COMPA_vect){
-	//flag_stop_comunicaciones=1;	
+//flag_stop_comunicaciones=1;
 //}
 
 
 //PARA TENER EL DATO EN 2 UINT8_T
 //double v=25.562677678;
 //
-	//uint8_t a= trunc(v);
-	//uint8_t b=(v-trunc(v))*100;
-	//b=trunc(b);
+//uint8_t a= trunc(v);
+//uint8_t b=(v-trunc(v))*100;
+//b=trunc(b);
